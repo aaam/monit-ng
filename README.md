@@ -1,187 +1,155 @@
-Chef monit cookbook  [![Build Status](https://travis-ci.org/bbg-cookbooks/monit-ng.svg?branch=master)](https://travis-ci.org/bbg-cookbooks/monit-ng)
-===================
-Installs and configures monit, with a resource
-provider for managing additional monit checks.
+# Chef monit cookbook  [![Build Status](https://travis-ci.org/bbg-cookbooks/monit-ng.svg?branch=master)][travis]
 
-Recipes
--------
-- `monit::default`: installs and optionally configures monit
-- `monit::repo`: installs monit from a package repository
-- `monit::source`: installs monit from source
-- `monit::config`: configures monit
-- `monit::{crond,ntpd,postfix,rsyslog,sshd}`: install common service checks
+Installs and configures [Monit][tildeslash], with a resource provider for managing
+additional monit checks.
 
-Attributes
-----------
+Suggested background reading:
+
+* [The Fine Manual][manual]
+* This README, the resource and provider in cookbook libraries directory.
+
+## Recipes
+
+- `monit-ng::default`: loads the other recipes in the order below
+- `monit-ng::install`: installs monit via package or source
+- `monit-ng::configure`: configures global monit template
+- `monit-ng::service`: configures and manages the monit service
+- `monit-ng::reload`: reloads monit service if converge updated a monit_check
+
+## Dependencies
+
+- yum-epel (on rhel hosts)
+- ubuntu (on ubuntu hosts)
+- apt (on debian hosts)
+- build-essential (if installing from source)
 
 
-monit_check resource examples
------------------------------
+## Attributes
 
-##### External Service Check
+Most of these are very straight-forward, and pulled directly from the manual.
+See the inline documentation in attributes/\*.rb for details.
 
-```ruby
-monit_check 'facebook_api' do
-  check_type  'host'
-  check_id    'api.facebook.com'
-  group       'external'
-  tests [
-    {
-      'condition' => 'failed port 80 proto http',
-      'action'    => 'alert'
-    },
-    {
-      'condition' => 'failed port 443 type tcpSSL proto http',
-      'action'    => 'alert'
-    },
-  ]
-end
+The few "special" attributes are noted below:
+
+* `default['monit']['config']['alert']` (default: `[]`): this attributes configures *global* `set alert` config option for each `Hash` element with attribute `name` and optional event filters  
+
+Documentation for event filters can be found [here][filters].
+
 ```
-
-##### SSHD
-
-```ruby
-monit_check 'sshd' do
-  check_id  '/var/run/sshd.pid'
-  group     'system'
-  start     '/etc/init.d/ssh start'
-  stop      '/etc/init.d/ssh stop'
-  tests [
-    {
-      'condition' => "failed port #{node.openssh.server.port} proto ssh for 3 cycles",
-      'action'    => 'restart'
-    },
-    {
-      'condition' => '3 restarts within 5 cycles',
-      'action'    => 'alert'
-    },
-  ]
-end
-```
-
-##### Postfix
-
-```ruby
-monit_check 'postfix' do
-  check_id  '/var/spool/postfix/pid/master.pid'
-  group     'system'
-  start     '/etc/init.d/postfix start'
-  stop      '/etc/init.d/postfix stop'
-  tests [
-    {
-      'condition' => 'failed port 25 proto smtp',
-      'action'    => 'restart'
-    },
-    {
-      'condition' => '3 restarts within 5 cycles',
-      'action'    => 'alert'
-    },
-  ]
-end
-```
-
-##### Nginx
-
-```ruby
-monit_check 'nginx' do
-  check_id  '/var/run/nginx.pid'
-  group     'app'
-  start     '/etc/init.d/nginx start'
-  stop      '/etc/init.d/nginx stop'
-  tests [
-    {
-      'condition' => 'failed port 80',
-      'action'    => 'restart'
-    },
-    {
-      'condition' => '3 restarts within 5 cycles',
-      'action'    => 'alert'
+"default_attributes": {
+  "monit": {
+    "config": {
+      "alert": [
+        {
+			    "name": "root@localhost",
+			    "but_not_on": [ "nonexist" ]
+			  },
+			  {
+			    "name": "netadmin@localhost",
+			    "only_on": [ "nonexist", "timeout", "icmp", "connection"]
+			  },
+			  {
+			    "name": "iwantall@localhost",
+			  }
+			]
     }
-  ]
-end
+  }
+}
 ```
 
-##### Memcache
+* `default['monit']['config']['mail_servers']` (default: `[]`): this attributes configures `set mailserver` config option for each `Hash` element (mail server) with hash like so:
 
-```ruby
-monit_check 'memcache' do
-  check_id  '/var/run/memcached.pid'
-  group     'app'
-  start     '/etc/init.d/memcached start'
-  stop      '/etc/init.d/memcached stop'
-  tests [
-    {
-      'condition' => 'failed port 11211 proto memcache',
-      'action'    => 'restart'
-    },
-    {
-      'condition' => '3 restarts within 15 cycles',
-      'action'    => 'alert'
-    },
-  ]
-end
+```
+"default_attributes": {
+  "monit": {
+    "config": {
+ 			"mail_servers": [
+  		  {
+          "hostname": "localhost",
+          "port": 25,
+          "username": null,
+          "password": null,
+          "security": null,
+          "timeout": "30 seconds"
+        }
+			]
+    }
+  }
+}
 ```
 
-##### Redis
 
-```ruby
-monit_check 'redis' do
-  check_id  '/var/run/redis/redis-server.pid'
-  group     'database'
-  start     '/etc/init.d/redis-server start'
-  stop      '/etc/init.d/redis-server stop'
-  tests [
-    {
-      'condition' => 'failed host 127.0.0.1 port 6379 
-                     send "SET MONIT-TEST value\r\n" expect "OK" 
-                     send "EXISTS MONIT-TEST\r\n" expect ":1"',
-      'action'    => 'restart'
-    },
-    {
-      'condition' => '3 restarts within 5 cycles',
-      'action'    => 'alert'
-    },
-  ]
-end
+* `default['monit']['config']['built_in_configs']` (default: `[]`): this defines what built-in configuration files will be included
+
 ```
-##### Solr
-
-```ruby
-monit_check 'solr' do
-  check_id  '/var/run/tomcat6.pid'
-  group     'app'
-  start     '/etc/init.d/tomcat6 start'
-  stop      '/etc/init.d/tomcat6 stop'
-  tests [
-    {
-      'condition' => 'failed port 8080 proto http and request "/solr/admin/ping" for 2 cycles',
-      'action'    => 'restart'
-    },
-    {
-      'condition' => '3 restarts within 5 cycles',
-      'action'    => 'timeout'
-    },
-  ]
-end
+"default_attributes": {
+  "monit": {
+    "config": {
+      "built_in_configs": [
+        "memcached",
+        "nginx"
+      ]
+    }
+  }
+}
 ```
 
-##### MongoDB
+## Resources
 
-```ruby
-monit_check 'mongo' do
-  check_id  "#{node.mongodb.dbpath}/mongod.lock"
-  group     'database'
-  start     '/etc/init.d/mongodb start'
-  stop      '/etc/init.d/mongodb stop'
-  tests [
-    {
-      'condition' => "failed port #{node.mongodb.port} proto http for 2 cycles",
-      'action'    => 'restart with timeout 60 seconds'
-    },
-    {
-      'condition' => '3 restarts within 10 cycles',
-      'action'    => 'timeout'
-    },
-  ]
-end
+### monit_check
+
+|Attribute|Description|Default|
+|---------|-----------|-------|
+|cookbook|cookbook from which to source monit config template|monit-ng|
+|check_type|type of check (e.g. program, process, host)|process|
+|check_id|check identifier (e.g. pid path, hostname, executable path|nil|
+|id_type|type of identifier (e.g. pid, matching, address, path)|determined by check_type|
+|start_as|user to execute start command as|nil|
+|start_as_group|group to start program as|nil|
+|start|start command|nil|
+|stop_as|user to execute stop command as|nil|
+|stop_as_group|group to execute stop command as|nil|
+|stop|stop command|nil|
+|group|check group (e.g. "hosts")|nil|
+|depends|depends on named service (e.g. "apache")|nil|
+|tests|array of hashes with 'condition', 'action' keys, maps to monit if, then|[]|
+|every|string for args to "every" configuration (e.g. every n cycles, every "* 8-19 * * 1-5")|nil|
+|alert|email to alert|nil|
+|but_not_on|alert modifier to filter events for notification|nil|
+|alert_events|alert modifier to filter events for notification|nil|
+
+## Contributing
+
+1. Fork the repository on Github
+2. Create a named feature branch (like `add_component_x`)
+3. Write your change
+4. Write tests for your change (if applicable)
+5. Run the tests (`rake`), ensuring they all pass
+6. Write new resource/attribute description to `README.md`
+7. Write description about changes to PR
+8. Submit a Pull Request using Github
+
+
+## Copyright & License
+
+Authors:: Nathan Williams and [contributors][contrib]
+
 ```
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+[tildeslash]: http://mmonit.com/monit/
+[manual]: https://mmonit.com/monit/documentation/
+[filters]: https://mmonit.com/monit/documentation/monit.html#Setting-an-event-filter
+[contrib]: https://github.com/bbg-cookbooks/monit-ng/graphs/contributors
+[travis]: https://travis-ci.org/bbg-cookbooks/monit-ng
